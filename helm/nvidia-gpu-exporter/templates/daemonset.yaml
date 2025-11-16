@@ -68,7 +68,7 @@ spec:
               - name: {{ $header.name }}
                 value: {{ $header.value }}
               {{- end }}
-              path: /
+              path: {{ default "/metrics" .Values.livenessProbe.httpGet.path }}
               port: {{ .Values.service.portName }}
               scheme: {{ upper .Values.livenessProbe.httpGet.scheme }}
             initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
@@ -83,7 +83,7 @@ spec:
               - name: {{ $header.name }}
                 value: {{ $header.value }}
               {{- end }}
-              path: /
+              path: {{ default "/metrics" .Values.readinessProbe.httpGet.path }}
               port: {{ .Values.service.portName }}
               scheme: {{ upper .Values.readinessProbe.httpGet.scheme }}
             initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
