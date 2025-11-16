@@ -61,27 +61,27 @@ update_files() {
     echo -e "${BLUE}Updating Helm chart files...${NC}"
     
     # Update Chart.yaml
-    sed -i "s/version: .*/version: $version/" ./helm/nvidia-gpu-list-exporter/Chart.yaml
-    sed -i "s/appVersion: .*/appVersion: $version/" ./helm/nvidia-gpu-list-exporter/Chart.yaml
+    sed -i "s/version: .*/version: $version/" ./helm/nvidia-gpu-exporter/Chart.yaml
+    sed -i "s/appVersion: .*/appVersion: $version/" ./helm/nvidia-gpu-exporter/Chart.yaml
     
     # Update values.yaml
-    sed -i "s/tag: .*/tag: \"$version\"/" ./helm/nvidia-gpu-list-exporter/values.yaml
+    sed -i "s/tag: .*/tag: \"$version\"/" ./helm/nvidia-gpu-exporter/values.yaml
     
     echo -e "${GREEN}Updated files:${NC}"
-    echo "  - helm/nvidia-gpu-list-exporter/Chart.yaml"
-    echo "  - helm/nvidia-gpu-list-exporter/values.yaml"
+    echo "  - helm/nvidia-gpu-exporter/Chart.yaml"
+    echo "  - helm/nvidia-gpu-exporter/values.yaml"
 }
 
 show_changes() {
     echo -e "\n${YELLOW}Changes to be committed:${NC}"
-    git diff --color=always ./helm/nvidia-gpu-list-exporter/Chart.yaml ./helm/nvidia-gpu-list-exporter/values.yaml
+    git diff --color=always ./helm/nvidia-gpu-exporter/Chart.yaml ./helm/nvidia-gpu-exporter/values.yaml
     
     echo -e "\n${YELLOW}Do you want to proceed with these changes? (y/N)${NC}"
     read -r response
     if [[ ! "$response" =~ ^[Yy]$ ]]; then
         echo -e "${RED}Release canceled${NC}"
         # Revert changes
-        git checkout -- ./helm/nvidia-gpu-list-exporter/Chart.yaml ./helm/nvidia-gpu-list-exporter/values.yaml
+        git checkout -- ./helm/nvidia-gpu-exporter/Chart.yaml ./helm/nvidia-gpu-exporter/values.yaml
         exit 1
     fi
 }
@@ -90,7 +90,7 @@ commit_and_push() {
     local version=$1
     
     echo -e "${BLUE}Committing changes...${NC}"
-    git add ./helm/nvidia-gpu-list-exporter/Chart.yaml ./helm/nvidia-gpu-list-exporter/values.yaml
+    git add ./helm/nvidia-gpu-exporter/Chart.yaml ./helm/nvidia-gpu-exporter/values.yaml
     git commit -m "chore: release v$version"
     
     echo -e "${BLUE}Creating tag v$version...${NC}"

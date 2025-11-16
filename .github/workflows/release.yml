@@ -104,8 +104,8 @@ jobs:
 
       - name: Verify Chart version consistency
         run: |
-          CHART_VERSION=$(grep "version:" ./helm/nvidia-gpu-list-exporter/Chart.yaml | awk '{print $2}')
-          CHART_APP_VERSION=$(grep "appVersion:" ./helm/nvidia-gpu-list-exporter/Chart.yaml | awk '{print $2}' | tr -d '"')
+          CHART_VERSION=$(grep "version:" ./helm/nvidia-gpu-exporter/Chart.yaml | awk '{print $2}')
+          CHART_APP_VERSION=$(grep "appVersion:" ./helm/nvidia-gpu-exporter/Chart.yaml | awk '{print $2}' | tr -d '"')
           
           echo "Verifying version consistency..."
           echo "  Release version: ${{ steps.get_version.outputs.version }}"
