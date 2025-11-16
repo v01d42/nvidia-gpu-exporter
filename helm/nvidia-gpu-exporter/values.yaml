@@ -1,0 +1,195 @@
+# Default values for nvidia-gpu-exporter
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+image:
+  registry: ghcr.io
+  repository: v01d42/nvidia-gpu-exporter
+  tag: "0.0.1"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+# - name: "image-pull-secret"
+nameOverride: ""
+fullnameOverride: ""
+
+# Service configuration
+service:
+  ## Creating a service is enabled by default
+  enabled: true
+
+  ## Service type
+  type: ClusterIP
+  ## Default service port.
+  ## Use "servicePort" below if changing the service port only is desired.
+  port: 9432
+  ## Service port. Use this field if you wish to set a different service port
+  ## without changing the container port ("port" above).
+  servicePort: ""
+  ## Targeted port in the pod. Must refer to an open container port ("port" or "portName").
+  ## (IntOrString)
+  targetPort: 9432
+  ## Name of the service port. Sets the port name of the main container (NE) as well.
+  portName: metrics
+
+  ## Additional annotations and labels for the service
+  annotations:
+    prometheus.io/scrape: "true"
+  labels: {}
+
+# Additional environment variables that will be passed to the daemonset
+env: {}
+
+prometheus:
+  serviceMonitor:
+    enabled: true
+    additionalLabels: {}
+    namespace: ""
+
+    jobLabel: ""
+
+    # List of pod labels to add to node exporter metrics
+    # https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/api-reference/api.md#servicemonitor
+    podTargetLabels: []
+
+    # List of target labels to add to node exporter metrics
+    # https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/api-reference/api.md#servicemonitor
+    targetLabels: []
+
+    scheme: http
+    basicAuth: {}
+    bearerTokenFile:
+    tlsConfig: {}
+
+    ## proxyUrl: URL of a proxy that should be used for scraping.
+    proxyUrl: ""
+
+    ## Override serviceMonitor selector
+    selectorOverride: {}
+
+    relabelings: []
+    metricRelabelings: []
+    interval: 60s
+    scrapeTimeout: 10s
+    ## prometheus.monitor.apiVersion ApiVersion for the serviceMonitor Resource(defaults to "monitoring.coreos.com/v1")
+    apiVersion: ""
+
+# Customize the updateStrategy if set
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 1
+
+# Resources
+resources: {}
+#   limits:
+#     cpu: 200m
+#     memory: 50Mi
+#   requests:
+#     cpu: 100m
+#     memory: 30Mi
+
+securityContext:
+  runAsGroup: 65534
+  runAsNonRoot: true
+  runAsUser: 65534
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    add:
+      - SYS_PTRACE
+    drop:
+      - ALL
+      - KILL
+      - SYS_KILL
+      - SYS_ADMIN
+
+# Expose the service to the host network
+hostNetwork: true
+
+# Share the host process ID namespace
+hostPID: true
+
+# Share the host ipc namespace
+hostIPC: false
+
+hostProcFsMount:
+  # Possible values are None, HostToContainer, and Bidirectional
+  mountPropagation: ""
+
+affinity: {}
+#   nodeAffinity:
+#     requiredDuringSchedulingIgnoredDuringExecution:
+#       nodeSelectorTerms:
+#       - matchExpressions:
+#         - key: your-key
+#           operator: In
+#           values:
+#           - your-value
+
+podAnnotations: {}
+
+nodeSelector: {}
+
+tolerations:
+  - effect: NoSchedule
+    operator: Exists
+
+## Assign a PriorityClassName to pods if set
+priorityClassName: "" 
+
+## Additional container arguments
+extraArgs: []
+
+## Additional mounts from the host to node-exporter container
+extraHostVolumeMounts: []
+#  - name: <mountName>
+#    hostPath: <hostPath>
+#    https://kubernetes.io/docs/concepts/storage/volumes/#hostpath-volume-types
+#    type: "" (Default)|DirectoryOrCreate|Directory|FileOrCreate|File|Socket|CharDevice|BlockDevice
+#    mountPath: <mountPath>
+#    readOnly: true|false
+#    mountPropagation: None|HostToContainer|Bidirectional
+
+## Override the deployment namespace
+namespaceOverride: ""
+
+## Liveness probe
+livenessProbe:
+  failureThreshold: 3
+  httpGet:
+    httpHeaders: []
+    scheme: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  successThreshold: 1
+  timeoutSeconds: 5
+
+## Readiness probe
+readinessProbe:
+  failureThreshold: 3
+  httpGet:
+    httpHeaders: []
+    scheme: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  successThreshold: 1
+  timeoutSeconds: 5
+
+## Extra volumes to become available in the pod
+extraVolumes: []
+  # - name: extra-volume
+  #   secret:
+  #     defaultMode: 420
+  #     optional: false
+  #     secretName: node-exporter-secret
+
+## Extra volume mounts in the node-exporter container
+extraVolumeMounts: []
+  # - name: extra-volume
+  #   mountPath: /extra
+  #   readOnly: true
+  

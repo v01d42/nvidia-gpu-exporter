@@ -1,0 +1,3 @@
+Thank you for installing {{ .Chart.Name }} v{{ .Chart.Version }}!
+
+The NVIDIA GPU Exporter has been deployed as a DaemonSet to monitor GPU resources across your cluster.

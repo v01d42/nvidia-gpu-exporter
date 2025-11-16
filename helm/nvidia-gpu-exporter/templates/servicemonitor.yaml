@@ -1,0 +1,60 @@
+{{- if .Values.prometheus.serviceMonitor.enabled }}
+apiVersion: {{ .Values.prometheus.serviceMonitor.apiVersion | default "monitoring.coreos.com/v1" }}
+kind: ServiceMonitor
+metadata:
+  name: {{ include "nvidia-gpu-exporter.fullname" . }}
+  namespace: {{ include "nvidia-gpu-exporter.monitor-namespace" . }}
+  labels:
+    {{- include "nvidia-gpu-exporter.labels" . | nindent 4 }}
+    {{- with .Values.prometheus.serviceMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  jobLabel: {{ default "app.kubernetes.io/name" .Values.prometheus.serviceMonitor.jobLabel }}
+  {{- with .Values.prometheus.serviceMonitor.podTargetLabels }}
+  podTargetLabels:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.prometheus.serviceMonitor.targetLabels }}
+  targetLabels:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+    {{- with .Values.prometheus.serviceMonitor.selectorOverride }}
+      {{- toYaml . | nindent 6 }}
+    {{- else }}
+      {{- include "nvidia-gpu-exporter.selectorLabels" . | nindent 6 }}
+    {{- end }}
+  endpoints:
+  - port: {{ .Values.service.portName }}
+    scheme: {{ .Values.prometheus.serviceMonitor.scheme }}
+    {{- with .Values.prometheus.serviceMonitor.basicAuth }}
+    basicAuth:
+      {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- with .Values.prometheus.serviceMonitor.bearerTokenFile }}
+    bearerTokenFile: {{ . }}
+    {{- end }}
+    {{- with .Values.prometheus.serviceMonitor.tlsConfig }}
+    tlsConfig:
+      {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- with .Values.prometheus.serviceMonitor.proxyUrl }}
+    proxyUrl: {{ . }}
+    {{- end }}
+    {{- with .Values.prometheus.serviceMonitor.interval }}
+    interval: {{ . }}
+    {{- end }}
+    {{- with .Values.prometheus.serviceMonitor.scrapeTimeout }}
+    scrapeTimeout: {{ . }}
+    {{- end }}
+    {{- with .Values.prometheus.serviceMonitor.relabelings }}
+    relabelings:
+      {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- with .Values.prometheus.serviceMonitor.metricRelabelings }}
+    metricRelabelings:
+      {{- toYaml . | nindent 8 }}
+    {{- end }}
+{{- end }} 
