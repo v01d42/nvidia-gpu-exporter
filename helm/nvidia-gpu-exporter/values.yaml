@@ -88,6 +88,9 @@ resources: {}
 #     cpu: 100m
 #     memory: 30Mi
 
+# Runtime settings
+runtimeClassName: nvidia
+
 securityContext:
   runAsGroup: 65534
   runAsNonRoot: true

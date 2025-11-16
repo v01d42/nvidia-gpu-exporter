@@ -26,9 +26,8 @@ spec:
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.priorityClassName }}
-      priorityClassName: {{ . }}
-      {{- end }}
+      priorityClassName: {{ .Values.priorityClassName }}
+      runtimeClassName: {{ .Values.runtimeClassName }}
       containers:
         - name: nvidia-gpu-exporter
           image: {{ include "nvidia-gpu-exporter.image" . }}
