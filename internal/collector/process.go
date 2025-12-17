@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/NVIDIA/go-dcgm/pkg/dcgm"
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/shirou/gopsutil/v4/process"
@@ -44,7 +43,7 @@ func NewGPUProcessCollector(logger *slog.Logger) (Collector, error) {
 func (c *gpuProcessCollector) Update(ch chan<- prometheus.Metric) error {
 	hostname := hostNameOrDefault(c.logger)
 
-	pids, err := nvmlProcessPIDs(c.logger)
+	usages, err := nvmlGPUProcessUsages(c.logger)
 	if err != nil {
 		if errors.Is(err, errGPUProcessInfoUnavailable) {
 			c.logger.Debug("gpu process listing unavailable", "err", err)
@@ -52,64 +51,40 @@ func (c *gpuProcessCollector) Update(ch chan<- prometheus.Metric) error {
 		}
 		return fmt.Errorf("list gpu processes: %w", err)
 	}
-	if len(pids) == 0 {
+	if len(usages) == 0 {
 		c.logger.Debug("no gpu processes reported")
 		return nil
 	}
 
-	cleanup, err := dcgm.Init(dcgm.Embedded)
-	if err != nil {
-		return fmt.Errorf("init dcgm: %w", err)
-	}
-	defer cleanup()
+	metaCache := make(map[uint]processMetadata)
 
-	group, err := dcgm.WatchPidFields()
-	if err != nil {
-		return fmt.Errorf("watch pid fields: %w", err)
-	}
-	defer func() {
-		if destroyErr := dcgm.DestroyGroup(group); destroyErr != nil {
-			c.logger.Debug("failed to destroy pid group", "err", destroyErr)
-		}
-	}()
-
-	for _, pid := range pids {
-		infos, err := dcgm.GetProcessInfo(group, pid)
-		if err != nil {
-			if shouldIgnoreProcessError(err) {
+	for _, usage := range usages {
+		meta, ok := metaCache[usage.pid]
+		if !ok {
+			var metaErr error
+			meta, metaErr = collectProcessInfo(usage.pid, "")
+			if metaErr != nil {
+				c.logger.Debug("failed to collect host process info", "pid", usage.pid, "err", metaErr)
 				continue
 			}
-			c.logger.Debug("failed to get process info", "pid", pid, "err", err)
-			continue
+			metaCache[usage.pid] = meta
 		}
 
-		if len(infos) == 0 {
-			continue
+		labels := []string{
+			hostname,
+			strconv.FormatUint(uint64(usage.gpu), 10),
+			strconv.FormatUint(uint64(usage.pid), 10),
+			meta.name,
+			meta.uid,
+			meta.command,
 		}
 
-		meta, err := collectProcessInfo(pid, infos[0].Name)
-		if err != nil {
-			c.logger.Debug("failed to collect host process info", "pid", pid, "err", err)
-			continue
-		}
-
-		for _, info := range infos {
-			labels := []string{
-				hostname,
-				strconv.FormatUint(uint64(info.GPU), 10),
-				strconv.FormatUint(uint64(info.PID), 10),
-				meta.name,
-				meta.uid,
-				meta.command,
-			}
-
-			ch <- prometheus.MustNewConstMetric(
-				c.processGPUMem,
-				prometheus.GaugeValue,
-				sanitizeBytes(info.Memory.GlobalUsed),
-				labels...,
-			)
-		}
+		ch <- prometheus.MustNewConstMetric(
+			c.processGPUMem,
+			prometheus.GaugeValue,
+			sanitizeBytes(int64(usage.memBytes)),
+			labels...,
+		)
 	}
 
 	return nil
@@ -125,7 +100,13 @@ type processMetadata struct {
 	command string
 }
 
-func nvmlProcessPIDs(logger *slog.Logger) ([]uint, error) {
+type gpuProcessUsage struct {
+	gpu      uint
+	pid      uint
+	memBytes uint64
+}
+
+func nvmlGPUProcessUsages(logger *slog.Logger) ([]gpuProcessUsage, error) {
 	ret := nvml.Init()
 	if ret != nvml.SUCCESS {
 		return nil, wrapNVMLAvailabilityError("nvml init", ret)
@@ -141,32 +122,34 @@ func nvmlProcessPIDs(logger *slog.Logger) ([]uint, error) {
 		return nil, wrapNVMLAvailabilityError("nvml device count", ret)
 	}
 
-	pidSet := make(map[uint]struct{})
+	usages := make([]gpuProcessUsage, 0)
 	for i := 0; i < count; i++ {
 		device, ret := nvml.DeviceGetHandleByIndex(i)
 		if ret != nvml.SUCCESS {
 			return nil, fmt.Errorf("nvml device handle (index=%d): %s", i, nvml.ErrorString(ret))
 		}
 
-		if err := addNVMLProcessInfo(pidSet, device.GetComputeRunningProcesses, "compute", i, logger); err != nil {
+		if err := appendNVMLProcessUsages(&usages, device.GetComputeRunningProcesses, "compute", i, logger); err != nil {
 			return nil, err
 		}
-		if err := addNVMLProcessInfo(pidSet, device.GetGraphicsRunningProcesses, "graphics", i, logger); err != nil {
+		if err := appendNVMLProcessUsages(&usages, device.GetGraphicsRunningProcesses, "graphics", i, logger); err != nil {
 			return nil, err
 		}
 	}
 
-	result := make([]uint, 0, len(pidSet))
-	for pid := range pidSet {
-		result = append(result, pid)
-	}
-	sort.Slice(result, func(i, j int) bool { return result[i] < result[j] })
-	return result, nil
+	sort.Slice(usages, func(i, j int) bool {
+		if usages[i].gpu == usages[j].gpu {
+			return usages[i].pid < usages[j].pid
+		}
+		return usages[i].gpu < usages[j].gpu
+	})
+
+	return usages, nil
 }
 
 type nvmlProcessGetter func() ([]nvml.ProcessInfo, nvml.Return)
 
-func addNVMLProcessInfo(pidSet map[uint]struct{}, getter nvmlProcessGetter, typ string, gpuIndex int, logger *slog.Logger) error {
+func appendNVMLProcessUsages(dst *[]gpuProcessUsage, getter nvmlProcessGetter, typ string, gpuIndex int, logger *slog.Logger) error {
 	processes, ret := getter()
 	switch ret {
 	case nvml.SUCCESS:
@@ -174,7 +157,11 @@ func addNVMLProcessInfo(pidSet map[uint]struct{}, getter nvmlProcessGetter, typ 
 			if info.Pid == 0 {
 				continue
 			}
-			pidSet[uint(info.Pid)] = struct{}{}
+			*dst = append(*dst, gpuProcessUsage{
+				gpu:      uint(gpuIndex),
+				pid:      uint(info.Pid),
+				memBytes: info.UsedGpuMemory,
+			})
 		}
 		return nil
 	case nvml.ERROR_NOT_SUPPORTED, nvml.ERROR_NO_PERMISSION, nvml.ERROR_NOT_FOUND:
@@ -249,25 +236,8 @@ func firstNonEmpty(values ...string) string {
 }
 
 func sanitizeBytes(value int64) float64 {
-	if value <= 0 || dcgm.IsInt64Blank(value) {
+	if value <= 0 {
 		return 0
 	}
 	return float64(value)
-}
-
-func shouldIgnoreProcessError(err error) bool {
-	var dcgmErr *dcgm.Error
-	if !errors.As(err, &dcgmErr) {
-		return false
-	}
-
-	switch int(dcgmErr.Code) {
-	case dcgm.DCGM_ST_NO_DATA,
-		dcgm.DCGM_ST_NOT_WATCHED,
-		dcgm.DCGM_ST_BADPARAM,
-		dcgm.DCGM_ST_NO_PERMISSION:
-		return true
-	default:
-		return false
-	}
 }
