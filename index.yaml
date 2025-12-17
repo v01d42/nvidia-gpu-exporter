@@ -2,6 +2,26 @@ apiVersion: v1
 entries:
   nvidia-gpu-exporter:
   - apiVersion: v2
+    appVersion: 0.2.1
+    created: "2025-12-17T07:24:20.983267514Z"
+    description: A Helm chart for NVIDIA GPU exporter
+    digest: f537b734cd8e5cbbf5af9388181a7e6380e4da065b4aee467a78f893db24de61
+    home: https://github.com/V01d42/nvidia-gpu-exporter
+    keywords:
+    - nvidia-gpu-exporter
+    - prometheus
+    - exporter
+    maintainers:
+    - name: v01d42
+      url: https://github.com/v01d42
+    name: nvidia-gpu-exporter
+    sources:
+    - https://github.com/V01d42/nvidia-gpu-exporter
+    type: application
+    urls:
+    - https://github.com/v01d42/nvidia-gpu-exporter/releases/download/nvidia-gpu-exporter-0.2.1/nvidia-gpu-exporter-0.2.1.tgz
+    version: 0.2.1
+  - apiVersion: v2
     appVersion: 0.2.0
     created: "2025-11-17T15:45:28.900182429Z"
     description: A Helm chart for NVIDIA GPU exporter
@@ -101,4 +121,4 @@ entries:
     urls:
     - https://github.com/v01d42/nvidia-gpu-exporter/releases/download/nvidia-gpu-exporter-0.1.1/nvidia-gpu-exporter-0.1.1.tgz
     version: 0.1.1
-generated: "2025-11-17T15:45:28.900213788Z"
+generated: "2025-12-17T07:24:20.983321455Z"
