@@ -104,11 +104,11 @@ containerSecurityContext:
   capabilities:
     add:
       - SYS_PTRACE
+      - SYS_ADMIN
     drop:
       - ALL
       - KILL
       - SYS_KILL
-      - SYS_ADMIN
 
 # Expose the service to the host network
 hostNetwork: false

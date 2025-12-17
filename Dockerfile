@@ -50,9 +50,6 @@ COPY --from=builder /app/nvidia-gpu-exporter ./
 # Set execution permissions for binary
 RUN chmod +x nvidia-gpu-exporter
 
-# Change user
-USER exporter
-
 # Expose port
 EXPOSE 9432
 
