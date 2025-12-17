@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -12,7 +11,6 @@ import (
 	"github.com/NVIDIA/go-dcgm/pkg/dcgm"
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/process"
 )
 
@@ -25,11 +23,7 @@ const (
 // GPUMetricsCollector manages Prometheus metrics for physical GPU resources.
 type gpuProcessCollector struct {
 	processGPUMem *prometheus.Desc
-	processCPU    *prometheus.Desc
-	processMem    *prometheus.Desc
 	logger        *slog.Logger
-	cpuSamples    map[uint]cpuSample
-	systemSample  systemCPUSample
 }
 
 func init() {
@@ -43,18 +37,7 @@ func NewGPUProcessCollector(logger *slog.Logger) (Collector, error) {
 			"GPU process memory usage in bytes.",
 			[]string{"hostname", "gpu_id", "pid", "process_name", "uid", "command"}, nil,
 		),
-		processCPU: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, GPUProcessSubsystem, "cpu"),
-			"Process CPU usage percentage.",
-			[]string{"hostname", "gpu_id", "pid", "process_name", "uid", "command"}, nil,
-		),
-		processMem: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, GPUProcessSubsystem, "memory"),
-			"Process memory usage percentage.",
-			[]string{"hostname", "gpu_id", "pid", "process_name", "uid", "command"}, nil,
-		),
-		logger:     logger,
-		cpuSamples: make(map[uint]cpuSample),
+		logger: logger,
 	}, nil
 }
 
@@ -71,16 +54,8 @@ func (c *gpuProcessCollector) Update(ch chan<- prometheus.Metric) error {
 	}
 	if len(pids) == 0 {
 		c.logger.Debug("no gpu processes reported")
-		c.resetCPUSamples()
 		return nil
 	}
-
-	totalSeconds, err := readTotalCPUSeconds()
-	if err != nil {
-		return fmt.Errorf("read system cpu seconds: %w", err)
-	}
-	systemDelta, hasSystemDelta := c.updateSystemSample(totalSeconds)
-	numCPU := runtime.NumCPU()
 
 	cleanup, err := dcgm.Init(dcgm.Embedded)
 	if err != nil {
@@ -112,18 +87,10 @@ func (c *gpuProcessCollector) Update(ch chan<- prometheus.Metric) error {
 			continue
 		}
 
-		meta, memPercent, procCPUSeconds, err := collectProcessInfo(pid, infos[0].Name)
+		meta, err := collectProcessInfo(pid, infos[0].Name)
 		if err != nil {
 			c.logger.Debug("failed to collect host process info", "pid", pid, "err", err)
 			continue
-		}
-
-		cpuPercent := c.processCPUPercent(pid, procCPUSeconds, systemDelta, hasSystemDelta, numCPU)
-		if cpuPercent < 0 {
-			cpuPercent = 0
-		}
-		if memPercent < 0 {
-			memPercent = 0
 		}
 
 		for _, info := range infos {
@@ -142,24 +109,8 @@ func (c *gpuProcessCollector) Update(ch chan<- prometheus.Metric) error {
 				sanitizeBytes(info.Memory.GlobalUsed),
 				labels...,
 			)
-
-			ch <- prometheus.MustNewConstMetric(
-				c.processCPU,
-				prometheus.GaugeValue,
-				cpuPercent,
-				labels...,
-			)
-
-			ch <- prometheus.MustNewConstMetric(
-				c.processMem,
-				prometheus.GaugeValue,
-				memPercent,
-				labels...,
-			)
 		}
 	}
-
-	c.pruneCPUSamples(pids)
 
 	return nil
 }
@@ -172,15 +123,6 @@ type processMetadata struct {
 	name    string
 	uid     string
 	command string
-}
-
-type cpuSample struct {
-	cpuSeconds float64
-}
-
-type systemCPUSample struct {
-	totalSeconds float64
-	initialized  bool
 }
 
 func nvmlProcessPIDs(logger *slog.Logger) ([]uint, error) {
@@ -257,10 +199,10 @@ func wrapNVMLAvailabilityError(op string, ret nvml.Return) error {
 	}
 }
 
-func collectProcessInfo(pid uint, fallbackName string) (processMetadata, float64, float64, error) {
+func collectProcessInfo(pid uint, fallbackName string) (processMetadata, error) {
 	proc, err := process.NewProcess(int32(pid))
 	if err != nil {
-		return processMetadata{}, 0, 0, err
+		return processMetadata{}, err
 	}
 
 	name, err := proc.Name()
@@ -280,16 +222,6 @@ func collectProcessInfo(pid uint, fallbackName string) (processMetadata, float64
 		}
 	}
 
-	memPercent, err := proc.MemoryPercent()
-	if err != nil {
-		return processMetadata{}, 0, 0, err
-	}
-
-	times, err := proc.Times()
-	if err != nil {
-		return processMetadata{}, 0, 0, err
-	}
-
 	meta := processMetadata{
 		name:    firstNonEmpty(name, fallbackName, unknownProcessLabel),
 		uid:     firstNonEmpty(uid, unknownProcessLabel),
@@ -304,9 +236,7 @@ func collectProcessInfo(pid uint, fallbackName string) (processMetadata, float64
 		}
 	}
 
-	cpuSeconds := times.User + times.System
-
-	return meta, float64(memPercent), cpuSeconds, nil
+	return meta, nil
 }
 
 func firstNonEmpty(values ...string) string {
@@ -323,70 +253,6 @@ func sanitizeBytes(value int64) float64 {
 		return 0
 	}
 	return float64(value)
-}
-
-func (c *gpuProcessCollector) processCPUPercent(pid uint, procSeconds float64, systemDelta float64, hasSystemDelta bool, numCPU int) float64 {
-	prev, ok := c.cpuSamples[pid]
-	c.cpuSamples[pid] = cpuSample{cpuSeconds: procSeconds}
-	if !ok || !hasSystemDelta || systemDelta <= 0 {
-		return 0
-	}
-	if procSeconds <= prev.cpuSeconds {
-		return 0
-	}
-	processDelta := procSeconds - prev.cpuSeconds
-	return (processDelta / systemDelta) * float64(numCPU) * 100
-}
-
-func (c *gpuProcessCollector) pruneCPUSamples(active []uint) {
-	if len(c.cpuSamples) == 0 {
-		return
-	}
-	activeSet := make(map[uint]struct{}, len(active))
-	for _, pid := range active {
-		activeSet[pid] = struct{}{}
-	}
-	for pid := range c.cpuSamples {
-		if _, ok := activeSet[pid]; !ok {
-			delete(c.cpuSamples, pid)
-		}
-	}
-}
-
-func (c *gpuProcessCollector) resetCPUSamples() {
-	for pid := range c.cpuSamples {
-		delete(c.cpuSamples, pid)
-	}
-	c.systemSample = systemCPUSample{}
-}
-
-func (c *gpuProcessCollector) updateSystemSample(total float64) (float64, bool) {
-	if !c.systemSample.initialized {
-		c.systemSample = systemCPUSample{totalSeconds: total, initialized: true}
-		return 0, false
-	}
-	var delta float64
-	if total >= c.systemSample.totalSeconds {
-		delta = total - c.systemSample.totalSeconds
-	}
-	c.systemSample.totalSeconds = total
-	if delta <= 0 {
-		return 0, false
-	}
-	return delta, true
-}
-
-func readTotalCPUSeconds() (float64, error) {
-	timesStats, err := cpu.Times(false)
-	if err != nil {
-		return 0, err
-	}
-	if len(timesStats) == 0 {
-		return 0, fmt.Errorf("cpu times unavailable")
-	}
-	ts := timesStats[0]
-	return ts.User + ts.System + ts.Nice + ts.Irq + ts.Softirq +
-		ts.Steal + ts.Idle + ts.Iowait + ts.Guest + ts.GuestNice, nil
 }
 
 func shouldIgnoreProcessError(err error) bool {
