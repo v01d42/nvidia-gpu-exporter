@@ -9,6 +9,8 @@ import (
 
 	dcgm "github.com/NVIDIA/go-dcgm/pkg/dcgm"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/shirou/gopsutil/v4/cpu"
+	"github.com/shirou/gopsutil/v4/mem"
 )
 
 const (
@@ -23,13 +25,16 @@ var gpuMetricFields = []dcgm.Short{
 	dcgm.DCGM_FI_DEV_GPU_UTIL,
 }
 
-// GPUMetricsCollector manages Prometheus metrics for physical GPU resources.
+// GPUMetricsCollector manages Prometheus metrics for physical GPU resources and
+// node‑level CPU / memory usage.
 type gpuMetricsCollector struct {
 	gpuFreeMemory  *prometheus.Desc
 	gpuUsedMemory  *prometheus.Desc
 	gpuTotalMemory *prometheus.Desc
 	gpuTemperature *prometheus.Desc
 	gpuUtilization *prometheus.Desc
+	CPUUtilization *prometheus.Desc
+	memUtilization *prometheus.Desc
 	logger         *slog.Logger
 }
 
@@ -63,6 +68,16 @@ func NewGPUMetricsCollector(logger *slog.Logger) (Collector, error) {
 			prometheus.BuildFQName(namespace, GPUMetricsSubsystem, "gpu_utilization"),
 			"GPU utilization percentage.",
 			[]string{"hostname", "gpu_id", "gpu_name"}, nil,
+		),
+		CPUUtilization: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, GPUMetricsSubsystem, "cpu_utilization"),
+			"Node total CPU utilization percentage.",
+			[]string{"hostname"}, nil,
+		),
+		memUtilization: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, GPUMetricsSubsystem, "memory_utilization"),
+			"Node total memory utilization percentage.",
+			[]string{"hostname"}, nil,
 		),
 		logger: logger,
 	}, nil
@@ -119,6 +134,30 @@ func (c *gpuMetricsCollector) Update(ch chan<- prometheus.Metric) error {
 		if val, ok := fieldValues[dcgm.DCGM_FI_DEV_GPU_UTIL]; ok {
 			ch <- prometheus.MustNewConstMetric(c.gpuUtilization, prometheus.GaugeValue, float64(val.Int64()), labels...)
 		}
+	}
+
+	// Node‑level CPU / memory utilization. We treat failures here as non‑fatal
+	// and log them, since GPU metrics are still valuable on their own.
+	if cpuPercent, err := readCPUPercent(); err != nil {
+		c.logger.Debug("failed to read node cpu utilization", "err", err)
+	} else {
+		ch <- prometheus.MustNewConstMetric(
+			c.CPUUtilization,
+			prometheus.GaugeValue,
+			cpuPercent,
+			hostname,
+		)
+	}
+
+	if memPercent, err := readMemPercent(); err != nil {
+		c.logger.Debug("failed to read node memory utilization", "err", err)
+	} else {
+		ch <- prometheus.MustNewConstMetric(
+			c.memUtilization,
+			prometheus.GaugeValue,
+			memPercent,
+			hostname,
+		)
 	}
 
 	return nil
@@ -191,4 +230,28 @@ func gpuDisplayName(info dcgm.Device) string {
 func mibToBytes(value int64) float64 {
 	const bytesInMiB = 1024 * 1024
 	return float64(value) * bytesInMiB
+}
+
+// readCPUPercent returns the total CPU utilization percentage for the node.
+// It uses gopsutil's instantaneous percentage (interval=0) aggregated over all
+// CPUs, which is sufficient for exporter‑style monitoring.
+func readCPUPercent() (float64, error) {
+	percentages, err := cpu.Percent(0, false)
+	if err != nil {
+		return 0, err
+	}
+	if len(percentages) == 0 {
+		return 0, fmt.Errorf("cpu percent unavailable")
+	}
+	return percentages[0], nil
+}
+
+// readMemPercent returns the total memory utilization percentage for the
+// node, based on gopsutil's VirtualMemory stats.
+func readMemPercent() (float64, error) {
+	vm, err := mem.VirtualMemory()
+	if err != nil {
+		return 0, err
+	}
+	return vm.UsedPercent, nil
 }
