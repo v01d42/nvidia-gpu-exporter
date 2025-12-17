@@ -21,18 +21,16 @@ var gpuMetricFields = []dcgm.Short{
 	dcgm.DCGM_FI_DEV_FB_TOTAL,
 	dcgm.DCGM_FI_DEV_GPU_TEMP,
 	dcgm.DCGM_FI_DEV_GPU_UTIL,
-	dcgm.DCGM_FI_DEV_MEM_COPY_UTIL,
 }
 
 // GPUMetricsCollector manages Prometheus metrics for physical GPU resources.
 type gpuMetricsCollector struct {
-	gpuFreeMemory     *prometheus.Desc
-	gpuUsedMemory     *prometheus.Desc
-	gpuTotalMemory    *prometheus.Desc
-	gpuTemperature    *prometheus.Desc
-	gpuUtilization    *prometheus.Desc
-	gpuMemUtilization *prometheus.Desc
-	logger            *slog.Logger
+	gpuFreeMemory  *prometheus.Desc
+	gpuUsedMemory  *prometheus.Desc
+	gpuTotalMemory *prometheus.Desc
+	gpuTemperature *prometheus.Desc
+	gpuUtilization *prometheus.Desc
+	logger         *slog.Logger
 }
 
 func init() {
@@ -64,11 +62,6 @@ func NewGPUMetricsCollector(logger *slog.Logger) (Collector, error) {
 		gpuUtilization: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, GPUMetricsSubsystem, "gpu_utilization"),
 			"GPU utilization percentage.",
-			[]string{"hostname", "gpu_id", "gpu_name"}, nil,
-		),
-		gpuMemUtilization: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, GPUMetricsSubsystem, "mem_utilization"),
-			"GPU memory utilization percentage.",
 			[]string{"hostname", "gpu_id", "gpu_name"}, nil,
 		),
 		logger: logger,
@@ -125,9 +118,6 @@ func (c *gpuMetricsCollector) Update(ch chan<- prometheus.Metric) error {
 		}
 		if val, ok := fieldValues[dcgm.DCGM_FI_DEV_GPU_UTIL]; ok {
 			ch <- prometheus.MustNewConstMetric(c.gpuUtilization, prometheus.GaugeValue, float64(val.Int64()), labels...)
-		}
-		if val, ok := fieldValues[dcgm.DCGM_FI_DEV_MEM_COPY_UTIL]; ok {
-			ch <- prometheus.MustNewConstMetric(c.gpuMemUtilization, prometheus.GaugeValue, float64(val.Int64()), labels...)
 		}
 	}
 
