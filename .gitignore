@@ -31,5 +31,5 @@ go.work.sum
 # .idea/
 # .vscode/
 
-# MCP
-.serena/
+# nix
+.direnv/
